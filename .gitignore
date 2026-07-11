@@ -1,0 +1,6 @@
+# Never track secrets or restored credentials
+*.secret
+*.b64
+.credentials.json
+.env
+.env.*
