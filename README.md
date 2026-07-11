@@ -10,7 +10,7 @@ gets confused between them.
 | Agent | Status | Location |
 |-------|--------|----------|
 | [Claude Code](#claude-code) | ready | `claude-code/` |
-| [Codex (CLI + Desktop)](#codex-cli--desktop) | planned | `codex/` (TBD) |
+| [Codex CLI](#codex-cli) | ready | `codex/` |
 
 ---
 
@@ -79,12 +79,57 @@ Then open the **Code** tab in the Claude mobile app, or visit
 
 ---
 
-## Codex (CLI + Desktop)
+## Codex CLI
 
-> **Planned — not yet worked out.** Scripts will live in `codex/`.
->
-> This section will cover authenticating the Codex CLI and Codex Desktop on a
-> VM, and driving it remotely. To be filled in once the workflow is settled.
+Scripts in [`codex/`](codex/):
+
+| File | Purpose |
+|------|---------|
+| `ensure-codex-config.sh` | Force `cli_auth_credentials_store = "file"` so credentials live in `auth.json` (required on headless VMs). |
+| `restore-codex-credentials.sh` | Rehydrate `~/.codex/auth.json` from base64 secret `CODEX_AUTH_JSON_B64`. |
+| `start-device-auth.sh` | Launch `codex login --device-auth` in tmux (headless OAuth). |
+| `export-codex-auth-b64.sh` | Print base64 of `auth.json` for the Cursor secret (after login). |
+
+### Headless OAuth (device code)
+
+On a VM with no browser, use **device auth** (not the localhost redirect flow):
+
+```bash
+./codex/ensure-codex-config.sh
+./codex/start-device-auth.sh
+# Open https://auth.openai.com/codex/device and enter the one-time code from the log
+```
+
+After `codex login status` shows logged in:
+
+```bash
+./codex/export-codex-auth-b64.sh   # → store as secret CODEX_AUTH_JSON_B64
+```
+
+### Persist on fresh VMs
+
+1. Store the export output as **`CODEX_AUTH_JSON_B64`** in your platform secret manager.
+2. On boot / session start:
+
+```bash
+./codex/ensure-codex-config.sh
+./codex/restore-codex-credentials.sh
+```
+
+3. Verify: `codex login status` and `codex exec "say ok"`.
+
+### Requirements & caveats
+
+- **ChatGPT subscription or API key** — device auth uses ChatGPT login; API-key login uses a different `auth.json` shape (also supported by restore).
+- **File storage only for restore** — keyring/Secret Service credentials cannot be rehydrated from a secret; `ensure-codex-config.sh` sets `file`.
+- **Secret size** — `auth.json` is usually small enough for Cursor My Secrets (~4096 chars). If not, gzip+base64 can be added later.
+- **Never commit `auth.json` or the b64 blob.**
+
+---
+
+## Codex (CLI + Desktop) — legacy note
+
+Desktop-specific remote workflows may be documented here later. CLI auth + restore above is sufficient for Cloud Agent VMs.
 
 ---
 

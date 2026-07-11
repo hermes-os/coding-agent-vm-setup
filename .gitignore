@@ -2,5 +2,6 @@
 *.secret
 *.b64
 .credentials.json
+auth.json
 .env
 .env.*
