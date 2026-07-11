@@ -16,26 +16,43 @@ gets confused between them.
 
 ## Cursor Cloud boot snippet
 
-Add this to your Cursor environment **update/install script** (platform UI — not in an app repo). It clones or updates this repo, then restores agent credentials from Cursor secrets. Pair with `npm install` (or your project's dependency step) in the same script.
+Add this to your Cursor environment **update/install script** (platform UI — not in an app repo). Pair with `npm install` (or your project's dependency step) in the same script.
+
+**One-liner** (clone/update, then bootstrap):
 
 ```bash
+npm install   # Ashwren or your app — omit on non-Node projects
 REPO=~/coding-agent-vm-setup
 if [ -d "$REPO/.git" ]; then git -C "$REPO" pull --ff-only
 else git clone https://github.com/hermes-os/coding-agent-vm-setup "$REPO"; fi
-
-# Claude Code auth (secret: CLAUDE_CODE_CREDENTIALS_B64)
-CLAUDE_PROJECT_DIR=/workspace "$REPO/claude-code/restore-claude-credentials.sh"
-
-# Codex auth (secret: CODEX_AUTH_JSON_B64)
-"$REPO/codex/ensure-codex-config.sh"
-"$REPO/codex/restore-codex-credentials.sh"
+CLAUDE_PROJECT_DIR=/workspace "$REPO/bootstrap.sh"
 ```
 
-**Secrets:** `CLAUDE_CODE_CREDENTIALS_B64`, `CODEX_AUTH_JSON_B64` — see agent sections below. Never commit credential blobs.
+[`bootstrap.sh`](bootstrap.sh) runs: `git pull` → optional scoped push remote → restore Claude → restore Codex.
 
-**Pushing vm-setup from a Cursor Cloud VM:** global `git config insteadOf` may rewrite `github.com` URLs to a bot token that cannot push to `hermes-os/*`. Refine this repo on a machine with your normal GitHub creds, or use an explicit token-embedded push URL when needed.
+**Secrets** (Cursor My Secrets — never commit):
 
-**tmux on Cursor VMs:** scripts use `lib/tmux.sh` — auto-selects `/exec-daemon/tmux.portal.conf` when present, else plain `tmux`.
+| Secret | Purpose |
+|--------|---------|
+| `CLAUDE_CODE_CREDENTIALS_B64` | Claude Code OAuth (minimal `claudeAiOauth` JSON) |
+| `CODEX_AUTH_JSON_B64` | Codex ChatGPT OAuth (`auth.json`, gzip+base64 export) |
+| `SHARED_REPO_TOKEN` | Fine-grained PAT: **Contents R/W** on `hermes-os/coding-agent-vm-setup` only |
+
+### Scoped GitHub push from Cloud VMs
+
+Cursor injects a global `git config insteadOf` that rewrites `https://github.com/` to `cursor[bot]`, which cannot push to your org. **Do not** set a global `GH_TOKEN` / `GITHUB_TOKEN` secret — that overrides Cursor's bot auth for all repos (including Ashwren) and can break the agent.
+
+Instead, `bootstrap.sh` sets **only this repo's** `origin` to a token URL (does not match the `https://github.com/` prefix, so it bypasses the rewrite):
+
+```bash
+# handled inside bootstrap.sh when SHARED_REPO_TOKEN is set
+git -C ~/coding-agent-vm-setup remote set-url origin \
+  "https://x-access-token:${SHARED_REPO_TOKEN}@github.com/hermes-os/coding-agent-vm-setup.git"
+```
+
+Create the PAT at GitHub → Settings → Developer settings → Fine-grained tokens → repository access: **only** `coding-agent-vm-setup` → Permissions: **Contents → Read and write**. Set an expiry (e.g. 90 days). The token is stored in plaintext in that repo's `.git/config` (same as Cursor's own injection); fine-grained scope limits blast radius.
+
+**tmux on Cursor VMs:** scripts use [`lib/tmux.sh`](lib/tmux.sh) — auto-selects `/exec-daemon/tmux.portal.conf` when present, else plain `tmux`.
 
 ---
 
