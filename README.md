@@ -14,6 +14,31 @@ gets confused between them.
 
 ---
 
+## Cursor Cloud boot snippet
+
+Add this to your Cursor environment **update/install script** (platform UI — not in an app repo). It clones or updates this repo, then restores agent credentials from Cursor secrets. Pair with `npm install` (or your project's dependency step) in the same script.
+
+```bash
+REPO=~/coding-agent-vm-setup
+if [ -d "$REPO/.git" ]; then git -C "$REPO" pull --ff-only
+else git clone https://github.com/hermes-os/coding-agent-vm-setup "$REPO"; fi
+
+# Claude Code auth (secret: CLAUDE_CODE_CREDENTIALS_B64)
+CLAUDE_PROJECT_DIR=/workspace "$REPO/claude-code/restore-claude-credentials.sh"
+
+# Codex auth (secret: CODEX_AUTH_JSON_B64)
+"$REPO/codex/ensure-codex-config.sh"
+"$REPO/codex/restore-codex-credentials.sh"
+```
+
+**Secrets:** `CLAUDE_CODE_CREDENTIALS_B64`, `CODEX_AUTH_JSON_B64` — see agent sections below. Never commit credential blobs.
+
+**Pushing vm-setup from a Cursor Cloud VM:** global `git config insteadOf` may rewrite `github.com` URLs to a bot token that cannot push to `hermes-os/*`. Refine this repo on a machine with your normal GitHub creds, or use an explicit token-embedded push URL when needed.
+
+**tmux on Cursor VMs:** scripts use `lib/tmux.sh` — auto-selects `/exec-daemon/tmux.portal.conf` when present, else plain `tmux`.
+
+---
+
 ## Claude Code
 
 Scripts in [`claude-code/`](claude-code/):

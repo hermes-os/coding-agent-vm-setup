@@ -4,27 +4,34 @@
 #
 # Optional:
 #   CODEX_AUTH_TMUX_SESSION  tmux session name (default: codex-auth)
+#   CODEX_PROJECT_DIR        working directory (default: $PWD)
+#   TMUX_CONFIG              tmux config file (auto: Cursor portal conf if present)
 set -euo pipefail
 
-SESSION="${CODEX_AUTH_TMUX_SESSION:-codex-auth}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/tmux.sh
+source "${SCRIPT_DIR}/../lib/tmux.sh"
+
+SESSION="${CODEX_AUTH_TMUX_SESSION:-codex-auth}"
+PROJECT_DIR="${CODEX_PROJECT_DIR:-$PWD}"
 
 "${SCRIPT_DIR}/ensure-codex-config.sh"
 
-if tmux -f /exec-daemon/tmux.portal.conf has-session -t "$SESSION" 2>/dev/null; then
+if vm_tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session '$SESSION' already exists. Attach with:"
-  echo "  tmux -f /exec-daemon/tmux.portal.conf attach -t $SESSION"
+  vm_tmux_attach_hint "$SESSION"
   exit 0
 fi
 
 LOG="/tmp/codex-oauth.log"
 rm -f "$LOG"
-tmux -f /exec-daemon/tmux.portal.conf new-session -d -s "$SESSION" -c "${CODEX_PROJECT_DIR:-$PWD}" -- bash -l
-tmux -f /exec-daemon/tmux.portal.conf send-keys -t "$SESSION:0.0" \
+vm_tmux new-session -d -s "$SESSION" -c "$PROJECT_DIR" -- bash -l
+vm_tmux send-keys -t "$SESSION:0.0" \
   "script -q -f $LOG -c 'codex login --device-auth'" C-m
 
 echo "Codex device auth starting in tmux '$SESSION'."
-echo "Watch: tmux -f /exec-daemon/tmux.portal.conf attach -t $SESSION"
+echo "Watch:"
+vm_tmux_attach_hint "$SESSION"
 echo "Or:    tail -f $LOG"
 echo
 echo "After login succeeds, export secret with:"
