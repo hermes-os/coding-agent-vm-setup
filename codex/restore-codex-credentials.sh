@@ -22,13 +22,15 @@ AUTH_FILE="${CODEX_HOME}/auth.json"
 TMP="${AUTH_FILE}.tmp.$$"
 
 python3 - "$TMP" <<'PY'
-import base64, gzip, json, os, sys
+import base64, gzip, json, os, re, sys
 
 out_path = sys.argv[1]
 b64 = os.environ.get("CODEX_AUTH_JSON_B64", "")
 if not b64:
     raise SystemExit("CODEX_AUTH_JSON_B64 empty")
-raw = base64.b64decode(b64)
+# Allow accidental newlines/spaces when pasting into secret UI.
+b64 = re.sub(r"\s+", "", b64)
+raw = base64.b64decode(b64, validate=True)
 if raw[:2] == b"\x1f\x8b":
     raw = gzip.decompress(raw)
 try:
