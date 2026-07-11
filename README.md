@@ -103,7 +103,7 @@ On a VM with no browser, use **device auth** (not the localhost redirect flow):
 After `codex login status` shows logged in:
 
 ```bash
-./codex/export-codex-auth-b64.sh   # → store as secret CODEX_AUTH_JSON_B64
+./codex/export-codex-auth-b64.sh   # gzip+base64 → store as secret CODEX_AUTH_JSON_B64 (~3.5k chars)
 ```
 
 ### Persist on fresh VMs
@@ -122,7 +122,7 @@ After `codex login status` shows logged in:
 
 - **ChatGPT subscription or API key** — device auth uses ChatGPT login; API-key login uses a different `auth.json` shape (also supported by restore).
 - **File storage only for restore** — keyring/Secret Service credentials cannot be rehydrated from a secret; `ensure-codex-config.sh` sets `file`.
-- **Secret size** — `auth.json` is usually small enough for Cursor My Secrets (~4096 chars). If not, gzip+base64 can be added later.
+- **Secret size** — ChatGPT OAuth `auth.json` exceeds Cursor My Secrets' ~4096 char limit when base64-encoded raw; `export-codex-auth-b64.sh` gzip-compresses first (~3464 chars). `restore-codex-credentials.sh` accepts gzip or plain JSON payloads.
 - **Never commit `auth.json` or the b64 blob.**
 
 ---

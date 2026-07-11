@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Restore Codex CLI auth from Cursor secret CODEX_AUTH_JSON_B64 (base64 of
-# ~/.codex/auth.json). Requires file-based storage — see ensure-codex-config.sh.
+# ~/.codex/auth.json, optionally gzip-compressed). Requires file-based storage
+# — see ensure-codex-config.sh.
 #
 # ChatGPT OAuth via `codex login --device-auth` writes auth.json with refresh
 # tokens; Codex refreshes automatically during use.
@@ -20,15 +21,24 @@ mkdir -p "$CODEX_HOME"
 AUTH_FILE="${CODEX_HOME}/auth.json"
 TMP="${AUTH_FILE}.tmp.$$"
 
-printf '%s' "$CODEX_AUTH_JSON_B64" | base64 -d > "$TMP"
-
 python3 - "$TMP" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-# ChatGPT login stores tokens; API-key login uses a different shape — accept both.
+import base64, gzip, json, os, sys
+
+out_path = sys.argv[1]
+b64 = os.environ.get("CODEX_AUTH_JSON_B64", "")
+if not b64:
+    raise SystemExit("CODEX_AUTH_JSON_B64 empty")
+raw = base64.b64decode(b64)
+if raw[:2] == b"\x1f\x8b":
+    raw = gzip.decompress(raw)
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError as e:
+    raise SystemExit(f"invalid Codex auth payload after decode: {e}") from e
 if not isinstance(data, dict) or len(data) == 0:
     raise SystemExit("invalid Codex auth.json payload: expected non-empty JSON object")
+with open(out_path, "w") as f:
+    json.dump(data, f, separators=(",", ":"))
 PY
 
 chmod 600 "$TMP"
