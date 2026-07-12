@@ -23,12 +23,11 @@ Add this to your Cursor environment **update/install script** (platform UI — n
 ```bash
 npm install   # Ashwren or your app — omit on non-Node projects
 REPO=~/coding-agent-vm-setup
-if [ -d "$REPO/.git" ]; then git -C "$REPO" pull --ff-only
-else git clone https://github.com/hermes-os/coding-agent-vm-setup "$REPO"; fi
+[ -d "$REPO/.git" ] || git clone https://github.com/hermes-os/coding-agent-vm-setup "$REPO"
 CLAUDE_PROJECT_DIR=/workspace "$REPO/bootstrap.sh"
 ```
 
-[`bootstrap.sh`](bootstrap.sh) runs: `git pull` → optional scoped push remote → restore Claude → restore Codex.
+[`bootstrap.sh`](bootstrap.sh) owns self-update, so the snippet only clones when missing. It runs: best-effort `git pull` → optional scoped push remote → restore Claude → restore Codex. Any one step failing never blocks the others.
 
 **Secrets** (Cursor My Secrets — never commit):
 

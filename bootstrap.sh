@@ -24,7 +24,10 @@ CODING_AGENT_VM_SETUP="${CODING_AGENT_VM_SETUP:-$ROOT}"
 SHARED_REPO_SLUG="${SHARED_REPO_SLUG:-hermes-os/coding-agent-vm-setup}"
 
 if [[ -d "${CODING_AGENT_VM_SETUP}/.git" ]]; then
-  git -C "${CODING_AGENT_VM_SETUP}" pull --ff-only
+  # Self-update is best-effort: a non-fast-forward, an expired PAT, or being
+  # offline must never block credential restore below.
+  git -C "${CODING_AGENT_VM_SETUP}" pull --ff-only \
+    || echo "self-update skipped (non-fast-forward or offline); using current checkout." >&2
 fi
 
 if [[ -n "${SHARED_REPO_TOKEN:-}" ]]; then
@@ -46,8 +49,13 @@ if [[ -z "${CLAUDE_PROJECT_DIR:-}" ]]; then
 fi
 export CLAUDE_PROJECT_DIR
 
-"${CODING_AGENT_VM_SETUP}/claude-code/restore-claude-credentials.sh"
-"${CODING_AGENT_VM_SETUP}/codex/ensure-codex-config.sh"
-"${CODING_AGENT_VM_SETUP}/codex/restore-codex-credentials.sh"
+# Each restore is independent — one agent's missing/malformed secret must not
+# block the other from authenticating.
+"${CODING_AGENT_VM_SETUP}/claude-code/restore-claude-credentials.sh" \
+  || echo "Claude credential restore failed (continuing)." >&2
+"${CODING_AGENT_VM_SETUP}/codex/ensure-codex-config.sh" \
+  || echo "Codex config setup failed (continuing)." >&2
+"${CODING_AGENT_VM_SETUP}/codex/restore-codex-credentials.sh" \
+  || echo "Codex credential restore failed (continuing)." >&2
 
 echo "Bootstrap complete (${CODING_AGENT_VM_SETUP})."
