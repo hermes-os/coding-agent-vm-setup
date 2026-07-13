@@ -1,0 +1,31 @@
+name: Agent system
+
+on:
+  push:
+    paths:
+      - "agent-system/**"
+      - ".github/workflows/agent-system.yml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "bootstrap.sh"
+  pull_request:
+    paths:
+      - "agent-system/**"
+      - ".github/workflows/agent-system.yml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "bootstrap.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: ./agent-system/validate.sh
+      - run: git diff --check

@@ -68,10 +68,11 @@ The imported system is intentionally model-neutral and excludes Peter's
 personal accounts, machine routing, OpenClaw-only infrastructure, and pinned
 reviewer models. Upstream references used for this snapshot:
 
-- `steipete/agent-scripts` at `e944a5a478d75e2812b954e682b77457fc39ba8a`
+- `steipete/agent-scripts` at `d42cf80a3206db86270a75414b8f8a62cd389ccb`
 - `openclaw/agent-skills` at `4664d27da471d1cb71bebdd9845dc8a6c56d6bbe`
 - `behavior-validator` is vendored from `openclaw/agent-skills` under its MIT
-  license; the remaining skills are lean host-neutral adaptations.
+  license. The path-scoped commit pattern is adapted from `agent-scripts`
+  under its MIT license; the remaining skills are lean host-neutral workflows.
 
 ### Installed catalog
 
@@ -81,6 +82,14 @@ reviewer models. Upstream references used for this snapshot:
 - `review`: findings-first independent plan/diff/code review, with the model
   assigned in the task prompt.
 - `behavior-validator`: Peter's source-blind user-visible behavior contract.
+- `fix-issue`: reproduce, repair, test, and complete authorized issue delivery.
+- `land`: verify and complete commit/push/merge delivery without repeated gates.
+- `release`: prepare, publish, and verify repository-native releases.
+- `portfolio`: reconstruct and coordinate work across repositories without a
+  persistent diary.
+- `maintain-skills`: validate skill structure, hooks, duplicates, and metadata
+  context cost.
+- `capabilities`: generate the current host tool and skill inventory on demand.
 
 Repo-specific workflows stay in their owning repo. For example, Ashwren's
 `books` roles and hooks live in `.agents/skills/books`, not in this global
@@ -100,7 +109,9 @@ The installer is idempotent and creates these adapters:
 - `~/.codex/AGENTS.md`, global prompts, and hook configuration
 - `~/.claude/CLAUDE.md`, `AGENTS.md`, flat skills, commands, and hooks
 - `~/.cursor/rules/global-engineering.mdc`, commands, and hooks
-- `~/.local/bin/docs-list`, `agent-docs-list`, and `agent-system-doctor`
+- `~/.local/bin/docs-list`, `agent-docs-list`, `agent-system-doctor`,
+  `committer`, `agent-skill-audit`, `agent-capabilities`, and
+  `agent-repo-inventory`
 
 It disables Claude auto-memory and Codex memories, removes host model pins so
 models remain task-prompt assignments, preserves unrelated host settings, and
@@ -130,6 +141,10 @@ Validate the portable layer with:
 ```bash
 ./agent-system/validate.sh
 ```
+
+Validation includes shell and Python syntax, strict skill and hook auditing,
+installer/doctor integration, helper behavior, and host adapter tests. GitHub
+Actions runs the same gate for changes to the portable system.
 
 ---
 
