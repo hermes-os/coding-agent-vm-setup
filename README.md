@@ -147,12 +147,13 @@ metadata without loading every document.
 The catalog stays at eleven always-visible skills. Deterministic helpers carry
 the larger mechanics outside model context:
 
-- `agent-autoreview` freezes a committed diff, rejects sensitive bundle input,
-  snapshots changed text, validates structured findings, and records or
-  publishes an idempotent exact-head result.
+- `agent-autoreview` freezes a canonical committed diff, rejects sensitive
+  bundle input, binds changed-file snapshots into its fingerprint, validates
+  structured findings, and publishes an idempotent fingerprint-specific result.
 - `agent-lease` uses expiring remote Git refs in this coordination repository.
-  Atomic creation, compare-and-swap renewal/deletion, and candidate SHA fencing
-  serialize local, VM, and cloud workers without a global memory file.
+  Empty-tree commits, atomic creation, compare-and-swap renewal/deletion, and
+  candidate SHA fencing serialize local, VM, and cloud workers without a global
+  memory file. Expired ownership requires explicit external-state reconciliation.
 - `agent-session-recover` finds local Codex and Claude JSONL sessions and emits
   a small redacted extract containing visible task turns only.
 - `agent-trash` moves routine cleanup to the platform Trash.
