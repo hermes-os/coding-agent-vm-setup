@@ -72,21 +72,25 @@ reviewer models. Upstream references used for this snapshot:
 - `openclaw/agent-skills` at `4664d27da471d1cb71bebdd9845dc8a6c56d6bbe`
 - `behavior-validator` is vendored from `openclaw/agent-skills` under its MIT
   license. The path-scoped commit pattern is adapted from `agent-scripts`
-  under its MIT license; the remaining skills are lean host-neutral workflows.
+  under its MIT license. Structured review and sanitized session recovery adapt
+  the contracts of OpenClaw's `autoreview` and `agent-transcript`; recoverable
+  deletion follows Peter's `trash.ts`. The implementations here remain lean,
+  host-neutral, and free of reviewer identity pins.
 
 ### Installed catalog
 
 - `handoff`: compact pause/resume evidence.
-- `pickup`: reconstruct current state and continue.
+- `pickup`: reconstruct current state, recover a dead local session when needed,
+  and continue without loading unrelated history.
 - `delegate`: write a portable, model-neutral role assignment.
-- `review`: findings-first independent plan/diff/code review, with the model
-  assigned in the task prompt.
+- `review`: freeze an exact code candidate, run findings-first independent
+  review, validate structured output, and record exact-head proof.
 - `behavior-validator`: Peter's source-blind user-visible behavior contract.
 - `fix-issue`: reproduce, repair, test, and complete authorized issue delivery.
 - `land`: verify and complete commit/push/merge delivery without repeated gates.
 - `release`: prepare, publish, and verify repository-native releases.
-- `portfolio`: reconstruct and coordinate work across repositories without a
-  persistent diary.
+- `portfolio`: coordinate repository ownership, cross-host leases, serialized
+  public mutations, active waits, and scheduled recovery without a diary.
 - `maintain-skills`: validate skill structure, hooks, duplicates, and metadata
   context cost.
 - `capabilities`: generate the current host tool and skill inventory on demand.
@@ -112,6 +116,8 @@ The installer is idempotent and creates these adapters:
 - `~/.local/bin/docs-list`, `agent-docs-list`, `agent-system-doctor`,
   `committer`, `agent-skill-audit`, `agent-capabilities`, and
   `agent-repo-inventory`
+- `~/.local/bin/agent-autoreview`, `agent-lease`, `agent-session-recover`, and
+  `agent-trash`
 
 It disables Claude auto-memory and Codex memories, removes host model pins so
 models remain task-prompt assignments, preserves unrelated host settings, and
@@ -135,6 +141,32 @@ symlinks only when needed. Cursor and Codex discover the root `AGENTS.md` and
 Large cross-cutting projects get one `docs/plan/<project>.md`. Ordinary tasks
 get no plan file. Run `agent-docs-list` to list `summary` and `read_when`
 metadata without loading every document.
+
+### Review and orchestration
+
+The catalog stays at eleven always-visible skills. Deterministic helpers carry
+the larger mechanics outside model context:
+
+- `agent-autoreview` freezes a committed diff, rejects sensitive bundle input,
+  snapshots changed text, validates structured findings, and records or
+  publishes an idempotent exact-head result.
+- `agent-lease` uses expiring remote Git refs in this coordination repository.
+  Atomic creation, compare-and-swap renewal/deletion, and candidate SHA fencing
+  serialize local, VM, and cloud workers without a global memory file.
+- `agent-session-recover` finds local Codex and Claude JSONL sessions and emits
+  a small redacted extract containing visible task turns only.
+- `agent-trash` moves routine cleanup to the platform Trash.
+
+Cursor Automations are thin triggers. Use the prompt templates beside the
+owning skills:
+
+- `agent-system/skills/review/references/cursor-automation.md`
+- `agent-system/skills/portfolio/references/cursor-orchestration.md`
+
+Event-triggered review handles fresh changes; nightly reconciliation catches a
+missed exact SHA. A five-minute orchestration heartbeat is enabled only while a
+project or portfolio is actively monitored. Neither automation uses Cursor
+Memories.
 
 Validate the portable layer with:
 
