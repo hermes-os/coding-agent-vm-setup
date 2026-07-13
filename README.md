@@ -7,8 +7,9 @@ VM, for any project. Nothing here is tied to a specific codebase.
 Each agent has its own section and its own subdirectory so the tooling never
 gets confused between them.
 
-| Agent | Status | Location |
+| Layer | Status | Location |
 |-------|--------|----------|
+| [Shared agent system](#shared-agent-system) | ready | `agent-system/` |
 | [Claude Code](#claude-code) | ready | `claude-code/` |
 | [Codex CLI](#codex-cli) | ready | `codex/` |
 
@@ -27,7 +28,7 @@ REPO=~/coding-agent-vm-setup
 CLAUDE_PROJECT_DIR=/workspace "$REPO/bootstrap.sh"
 ```
 
-[`bootstrap.sh`](bootstrap.sh) owns self-update, so the snippet only clones when missing. It runs: best-effort `git pull` → optional scoped push remote → restore Claude → restore Codex. Any one step failing never blocks the others.
+[`bootstrap.sh`](bootstrap.sh) owns self-update, so the snippet only clones when missing. It runs: best-effort `git pull` → optional scoped push remote → install the shared agent system → restore Claude → restore Codex. A failed credential restore does not block the other agent.
 
 **Secrets** (Cursor My Secrets — never commit):
 
@@ -52,6 +53,83 @@ git -C ~/coding-agent-vm-setup remote set-url origin \
 Create the PAT at GitHub → Settings → Developer settings → Fine-grained tokens → repository access: **only** `coding-agent-vm-setup` → Permissions: **Contents → Read and write**. Set an expiry (e.g. 90 days). The token is stored in plaintext in that repo's `.git/config` (same as Cursor's own injection); fine-grained scope limits blast radius.
 
 **tmux on Cursor VMs:** scripts use [`lib/tmux.sh`](lib/tmux.sh) — auto-selects `/exec-daemon/tmux.portal.conf` when present, else plain `tmux`.
+
+---
+
+## Shared agent system
+
+[`agent-system/`](agent-system/) is the portable source of truth shared by
+Codex, Claude Code, and Cursor. It follows Peter Steinberger's public
+`agent-scripts` architecture: one terse global rules file, dynamically loaded
+skills, pointer-style repository instructions, skill-owned hooks, concise
+handoff/pickup, and one active plan for genuinely multi-session projects.
+
+The imported system is intentionally model-neutral and excludes Peter's
+personal accounts, machine routing, OpenClaw-only infrastructure, and pinned
+reviewer models. Upstream references used for this snapshot:
+
+- `steipete/agent-scripts` at `e944a5a478d75e2812b954e682b77457fc39ba8a`
+- `openclaw/agent-skills` at `4664d27da471d1cb71bebdd9845dc8a6c56d6bbe`
+- `behavior-validator` is vendored from `openclaw/agent-skills` under its MIT
+  license; the remaining skills are lean host-neutral adaptations.
+
+### Installed catalog
+
+- `handoff`: compact pause/resume evidence.
+- `pickup`: reconstruct current state and continue.
+- `delegate`: write a portable, model-neutral role assignment.
+- `review`: findings-first independent plan/diff/code review, with the model
+  assigned in the task prompt.
+- `behavior-validator`: Peter's source-blind user-visible behavior contract.
+
+Repo-specific workflows stay in their owning repo. For example, Ashwren's
+`books` roles and hooks live in `.agents/skills/books`, not in this global
+catalog.
+
+### Host wiring
+
+Run directly on any machine:
+
+```bash
+./agent-system/install.sh
+```
+
+The installer is idempotent and creates these adapters:
+
+- `~/.agents/AGENTS.md`, `skills/`, `hooks/`, and `bin/docs-list`
+- `~/.codex/AGENTS.md`, global prompts, and hook configuration
+- `~/.claude/CLAUDE.md`, `AGENTS.md`, flat skills, commands, and hooks
+- `~/.cursor/rules/global-engineering.mdc`, commands, and hooks
+- `~/.local/bin/docs-list`, `agent-docs-list`, and `agent-system-doctor`
+
+It disables Claude auto-memory and Codex memories, removes host model pins so
+models remain task-prompt assignments, preserves unrelated host settings, and
+removes known legacy plugin config. Set
+`AGENT_SYSTEM_PRUNE_LEGACY=1` to remove known Cal/reviewer files during an
+upgrade; `bootstrap.sh` enables that cleanup on VMs.
+
+### Repository pointer
+
+Each repo keeps a small project guide beginning with:
+
+```text
+READ ~/.agents/AGENTS.md BEFORE ANYTHING (skip if missing).
+```
+
+Keep product facts below that line. Use `CLAUDE.md -> AGENTS.md`; store product
+skills in `.agents/skills/<name>` and expose those to Claude with per-skill
+symlinks only when needed. Cursor and Codex discover the root `AGENTS.md` and
+`.agents/skills` directly.
+
+Large cross-cutting projects get one `docs/plan/<project>.md`. Ordinary tasks
+get no plan file. Run `agent-docs-list` to list `summary` and `read_when`
+metadata without loading every document.
+
+Validate the portable layer with:
+
+```bash
+./agent-system/validate.sh
+```
 
 ---
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Cursor Cloud / headless VM bootstrap: self-update this repo, restore agent
-# credentials from Cursor secrets, optionally configure a scoped push remote.
+# Cursor Cloud / headless VM bootstrap: self-update this repo, install the
+# shared agent system, restore credentials, and optionally configure a scoped
+# push remote.
 #
 # Intended usage (in Cursor environment update script, after first clone):
 #   REPO=~/coding-agent-vm-setup
@@ -17,6 +18,7 @@
 #   CLAUDE_PROJECT_DIR           Workspace to trust (default: /workspace if exists, else $PWD)
 #   CODING_AGENT_VM_SETUP        Override repo root (default: this script's directory)
 #   SHARED_REPO_SLUG             GitHub slug for push remote (default: hermes-os/coding-agent-vm-setup)
+#   AGENT_SYSTEM_PRUNE_LEGACY    Remove known Cal/reviewer leftovers (default: 1)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +50,10 @@ if [[ -z "${CLAUDE_PROJECT_DIR:-}" ]]; then
   fi
 fi
 export CLAUDE_PROJECT_DIR
+
+AGENT_SYSTEM_PRUNE_LEGACY="${AGENT_SYSTEM_PRUNE_LEGACY:-1}" \
+  "${CODING_AGENT_VM_SETUP}/agent-system/install.sh" \
+  || echo "Agent system install failed (continuing with credential restore)." >&2
 
 # Each restore is independent — one agent's missing/malformed secret must not
 # block the other from authenticating.

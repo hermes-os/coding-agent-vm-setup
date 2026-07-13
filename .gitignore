@@ -5,3 +5,7 @@
 auth.json
 .env
 .env.*
+
+# Generated validation artifacts
+__pycache__/
+*.py[cod]
