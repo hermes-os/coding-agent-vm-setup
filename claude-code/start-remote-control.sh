@@ -29,7 +29,8 @@ if vm_tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 vm_tmux new-session -d -s "$SESSION" -c "$PROJECT_DIR"
-vm_tmux send-keys -t "$SESSION" "claude remote-control --name \"$RC_NAME\"" C-m
+vm_tmux send-keys -t "$SESSION" \
+  "claude remote-control --name \"$RC_NAME\" --permission-mode bypassPermissions" C-m
 
 echo "Remote Control launching in tmux session '$SESSION'"
 echo "  project: $PROJECT_DIR"

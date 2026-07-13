@@ -146,6 +146,24 @@ Validation includes shell and Python syntax, strict skill and hook auditing,
 installer/doctor integration, helper behavior, and host adapter tests. GitHub
 Actions runs the same gate for changes to the portable system.
 
+### Standard invocations
+
+The installer adds one managed source block to Bash and Zsh startup files.
+After opening a new shell, ordinary interactive commands use these defaults:
+
+- `claude`: starts the session with Remote Control and
+  `bypassPermissions` enabled.
+- `codex`: ensures the durable Remote Control daemon is running, then starts
+  the TUI with approvals, sandboxing, and managed hook-trust prompts bypassed.
+
+Native user config also persists Claude `bypassPermissions` and Codex
+`approval_policy = "never"` plus `sandbox_mode = "danger-full-access"`, so
+noninteractive and explicitly invoked workflows inherit the same permission
+policy. Utility commands such as `doctor`, `login`, `update`, `claude -p`, and
+`codex exec` do not start Remote Control. Set `AGENT_REMOTE_CONTROL=0` for a
+one-command opt-out. This baseline assumes a user-owned, trusted machine;
+change these defaults before installing it on a shared host.
+
 ---
 
 ## Claude Code
@@ -155,7 +173,7 @@ Scripts in [`claude-code/`](claude-code/):
 | File | Purpose |
 |------|---------|
 | `restore-claude-credentials.sh` | Rehydrate `~/.claude/.credentials.json` from a base64 env secret so a fresh VM session authenticates without an interactive login. |
-| `start-remote-control.sh` | Launch Remote Control in a persistent `tmux` session so a phone/laptop can drive the VM. |
+| `start-remote-control.sh` | Launch bypass-permissions Remote Control in a persistent `tmux` session so a phone/laptop can drive the VM. |
 
 ### Why this works on a VM with no inbound network
 
@@ -219,8 +237,10 @@ Scripts in [`codex/`](codex/):
 
 | File | Purpose |
 |------|---------|
+| `install-standalone.sh` | Install the official standalone Codex package required by the managed Remote Control daemon. |
 | `ensure-codex-config.sh` | Force `cli_auth_credentials_store = "file"` so credentials live in `auth.json` (required on headless VMs). |
 | `restore-codex-credentials.sh` | Rehydrate `~/.codex/auth.json` from base64 secret `CODEX_AUTH_JSON_B64`. |
+| `start-remote-control.sh` | Start the durable Codex app-server with Remote Control enabled. |
 | `start-device-auth.sh` | Launch `codex login --device-auth` in tmux (headless OAuth). |
 | `export-codex-auth-b64.sh` | Print base64 of `auth.json` for the Cursor secret (after login). |
 

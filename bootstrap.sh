@@ -59,9 +59,13 @@ AGENT_SYSTEM_PRUNE_LEGACY="${AGENT_SYSTEM_PRUNE_LEGACY:-1}" \
 # block the other from authenticating.
 "${CODING_AGENT_VM_SETUP}/claude-code/restore-claude-credentials.sh" \
   || echo "Claude credential restore failed (continuing)." >&2
+"${CODING_AGENT_VM_SETUP}/codex/install-standalone.sh" \
+  || echo "Codex standalone install failed (continuing)." >&2
 "${CODING_AGENT_VM_SETUP}/codex/ensure-codex-config.sh" \
   || echo "Codex config setup failed (continuing)." >&2
 "${CODING_AGENT_VM_SETUP}/codex/restore-codex-credentials.sh" \
   || echo "Codex credential restore failed (continuing)." >&2
+"${CODING_AGENT_VM_SETUP}/codex/start-remote-control.sh" \
+  || echo "Codex Remote Control startup failed (continuing)." >&2
 
 echo "Bootstrap complete (${CODING_AGENT_VM_SETUP})."

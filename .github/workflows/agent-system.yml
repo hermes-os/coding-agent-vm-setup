@@ -8,6 +8,9 @@ on:
       - "AGENTS.md"
       - "CLAUDE.md"
       - "bootstrap.sh"
+      - "claude-code/**"
+      - "codex/**"
+      - "lib/**"
   pull_request:
     paths:
       - "agent-system/**"
@@ -15,6 +18,9 @@ on:
       - "AGENTS.md"
       - "CLAUDE.md"
       - "bootstrap.sh"
+      - "claude-code/**"
+      - "codex/**"
+      - "lib/**"
 
 permissions:
   contents: read
