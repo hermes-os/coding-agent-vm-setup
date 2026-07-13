@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cursor Cloud / headless VM bootstrap: self-update this repo, install the
-# shared agent system, restore credentials, and optionally configure a scoped
-# push remote.
+# pinned shared agent system, restore credentials, and optionally configure a
+# scoped push remote.
 #
 # Intended usage (in Cursor environment update script, after first clone):
 #   REPO=~/coding-agent-vm-setup
@@ -18,7 +18,6 @@
 #   CLAUDE_PROJECT_DIR           Workspace to trust (default: /workspace if exists, else $PWD)
 #   CODING_AGENT_VM_SETUP        Override repo root (default: this script's directory)
 #   SHARED_REPO_SLUG             GitHub slug for push remote (default: hermes-os/coding-agent-vm-setup)
-#   AGENT_SYSTEM_PRUNE_LEGACY    Remove known Cal/reviewer leftovers (default: 1)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,6 +29,34 @@ if [[ -d "${CODING_AGENT_VM_SETUP}/.git" ]]; then
   # offline must never block credential restore below.
   git -C "${CODING_AGENT_VM_SETUP}" pull --ff-only \
     || echo "self-update skipped (non-fast-forward or offline); using current checkout." >&2
+fi
+
+# The VM owns the pin; the shared repository owns policy and skills. Always
+# materialize exactly the commit recorded by this checkout.
+agent_system_ready=1
+if ! git -C "${CODING_AGENT_VM_SETUP}" submodule sync --recursive; then
+  echo "submodule sync failed; shared system installation will be skipped." >&2
+  agent_system_ready=0
+fi
+if ! git -C "${CODING_AGENT_VM_SETUP}" submodule update --init --recursive; then
+  echo "shared agent-system checkout failed; installation will be skipped." >&2
+  agent_system_ready=0
+fi
+recorded_system_sha="$(
+  git -C "${CODING_AGENT_VM_SETUP}" ls-files -s agent-system 2>/dev/null \
+    | awk '$1 == "160000" {print $2}' \
+    || true
+)"
+actual_system_sha="$(
+  git -C "${CODING_AGENT_VM_SETUP}/agent-system" rev-parse HEAD 2>/dev/null || true
+)"
+system_status="$(
+  git -C "${CODING_AGENT_VM_SETUP}/agent-system" status --porcelain 2>/dev/null \
+    || printf 'unavailable\n'
+)"
+if [[ -z "$recorded_system_sha" || "$actual_system_sha" != "$recorded_system_sha" || -n "$system_status" ]]; then
+  echo "shared agent-system is not the exact clean VM pin; installation will be skipped." >&2
+  agent_system_ready=0
 fi
 
 if [[ -n "${SHARED_REPO_TOKEN:-}" ]]; then
@@ -51,9 +78,14 @@ if [[ -z "${CLAUDE_PROJECT_DIR:-}" ]]; then
 fi
 export CLAUDE_PROJECT_DIR
 
-AGENT_SYSTEM_PRUNE_LEGACY="${AGENT_SYSTEM_PRUNE_LEGACY:-1}" \
+if [[ "$agent_system_ready" == "1" && -x "${CODING_AGENT_VM_SETUP}/agent-system/install.sh" ]]; then
   "${CODING_AGENT_VM_SETUP}/agent-system/install.sh" \
-  || echo "Agent system install failed (continuing with credential restore)." >&2
+    --coordination-repo "${CODING_AGENT_VM_SETUP}" \
+    --host-integration "${CODING_AGENT_VM_SETUP}/host" \
+    || echo "Agent system install failed (continuing with credential restore)." >&2
+else
+  echo "Shared agent system is unavailable (continuing with credential restore)." >&2
+fi
 
 # Each restore is independent — one agent's missing/malformed secret must not
 # block the other from authenticating.

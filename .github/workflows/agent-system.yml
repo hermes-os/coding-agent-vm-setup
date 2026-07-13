@@ -1,26 +1,38 @@
-name: Agent system
+name: VM agent setup
 
 on:
   push:
     paths:
+      - ".gitmodules"
+      - "agent-system"
       - "agent-system/**"
       - ".github/workflows/agent-system.yml"
       - "AGENTS.md"
       - "CLAUDE.md"
+      - "README.md"
       - "bootstrap.sh"
       - "claude-code/**"
       - "codex/**"
+      - "host/**"
       - "lib/**"
+      - "tests/**"
+      - "validate.sh"
   pull_request:
     paths:
+      - ".gitmodules"
+      - "agent-system"
       - "agent-system/**"
       - ".github/workflows/agent-system.yml"
       - "AGENTS.md"
       - "CLAUDE.md"
+      - "README.md"
       - "bootstrap.sh"
       - "claude-code/**"
       - "codex/**"
+      - "host/**"
       - "lib/**"
+      - "tests/**"
+      - "validate.sh"
 
 permissions:
   contents: read
@@ -30,8 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: ./agent-system/validate.sh
-      - run: git diff --check
+      - run: ./validate.sh

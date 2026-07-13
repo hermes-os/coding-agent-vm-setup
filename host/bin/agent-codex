@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Standard Codex invocation: keep the host remotely controllable and launch
-# interactive work without approval or sandbox prompts.
+# VM Codex invocation: prefer the standalone package, keep Remote Control
+# available, and launch interactive work without approval or sandbox prompts.
 set -euo pipefail
 
 resolve_codex() {

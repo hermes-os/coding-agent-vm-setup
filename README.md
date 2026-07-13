@@ -1,327 +1,142 @@
 # Coding Agent VM Setup
 
-Portable, model-agnostic setup for running AI coding agents on a cloud dev VM
-(Cursor Cloud, Codespaces, a plain Linux box — anything). Drop this repo on any
-VM, for any project. Nothing here is tied to a specific codebase.
+Portable VM and cloud-host wiring for the shared, model-neutral engineering
+system. This repository owns VM behavior; the shared policy and skills remain
+independently versioned in
+[`hermes-os/coding-agent-system`](https://github.com/hermes-os/coding-agent-system).
 
-Each agent has its own section and its own subdirectory so the tooling never
-gets confused between them.
+## Layers
 
-| Layer | Status | Location |
-|-------|--------|----------|
-| [Shared agent system](#shared-agent-system) | ready | `agent-system/` |
-| [Claude Code](#claude-code) | ready | `claude-code/` |
-| [Codex CLI](#codex-cli) | ready | `codex/` |
+| Layer | Ownership | Location |
+|---|---|---|
+| Shared policy, skills, hooks, and deterministic helpers | Shared repository, exact Git pin | `agent-system/` |
+| VM invocation and shell behavior | This repository | `host/` |
+| VM bootstrap and authentication restore | This repository | `bootstrap.sh`, `claude-code/`, `codex/`, `lib/` |
 
----
+The VM and local workstation adapters intentionally live in different Git
+repositories. Updating the shared submodule never silently replaces VM launch
+behavior.
 
-## Cursor Cloud boot snippet
+## Cursor Cloud
 
-Add this to your Cursor environment **update/install script** (platform UI — not in an app repo). Pair with `npm install` (or your project's dependency step) in the same script.
-
-**One-liner** (clone/update, then bootstrap):
+Use this in the environment update/install script:
 
 ```bash
-npm install   # Ashwren or your app — omit on non-Node projects
+npm install # omit outside Node projects
 REPO=~/coding-agent-vm-setup
-[ -d "$REPO/.git" ] || git clone https://github.com/hermes-os/coding-agent-vm-setup "$REPO"
+[ -d "$REPO/.git" ] || git clone https://github.com/hermes-os/coding-agent-vm-setup.git "$REPO"
 CLAUDE_PROJECT_DIR=/workspace "$REPO/bootstrap.sh"
 ```
 
-[`bootstrap.sh`](bootstrap.sh) owns self-update, so the snippet only clones when missing. It runs: best-effort `git pull` → optional scoped push remote → install the shared agent system → restore Claude → restore Codex. A failed credential restore does not block the other agent.
+`bootstrap.sh` performs a best-effort fast-forward update, checks out the exact
+shared-system submodule pin, installs it with the VM-owned host adapter, and
+then restores each agent independently. One failed credential restore does not
+block the other agent.
 
-**Secrets** (Cursor My Secrets — never commit):
+Store credentials only in the platform secret manager:
 
-| Secret | Purpose |
-|--------|---------|
-| `CLAUDE_CODE_CREDENTIALS_B64` | Claude Code OAuth (minimal `claudeAiOauth` JSON) |
-| `CODEX_AUTH_JSON_B64` | Codex ChatGPT OAuth (`auth.json`, gzip+base64 export) |
-| `SHARED_REPO_TOKEN` | Fine-grained PAT: **Contents R/W** on `hermes-os/coding-agent-vm-setup` only |
+| Variable | Purpose |
+|---|---|
+| `CLAUDE_CODE_CREDENTIALS_B64` | Claude Code OAuth credentials JSON |
+| `CODEX_AUTH_JSON_B64` | gzip+base64 Codex `auth.json` |
+| `SHARED_REPO_TOKEN` | Optional fine-grained Contents R/W token for this VM repository only |
 
-### Scoped GitHub push from Cloud VMs
+Do not add a global `GH_TOKEN` or `GITHUB_TOKEN` merely for this repository.
+Cursor may use separate bot authentication for product repositories. When
+`SHARED_REPO_TOKEN` is present, bootstrap scopes its token URL to this checkout's
+`origin` only.
 
-Cursor injects a global `git config insteadOf` that rewrites `https://github.com/` to `cursor[bot]`, which cannot push to your org. **Do not** set a global `GH_TOKEN` / `GITHUB_TOKEN` secret — that overrides Cursor's bot auth for all repos (including Ashwren) and can break the agent.
+## Shared System Pin
 
-Instead, `bootstrap.sh` sets **only this repo's** `origin` to a token URL (does not match the `https://github.com/` prefix, so it bypasses the rewrite):
-
-```bash
-# handled inside bootstrap.sh when SHARED_REPO_TOKEN is set
-git -C ~/coding-agent-vm-setup remote set-url origin \
-  "https://x-access-token:${SHARED_REPO_TOKEN}@github.com/hermes-os/coding-agent-vm-setup.git"
-```
-
-Create the PAT at GitHub → Settings → Developer settings → Fine-grained tokens → repository access: **only** `coding-agent-vm-setup` → Permissions: **Contents → Read and write**. Set an expiry (e.g. 90 days). The token is stored in plaintext in that repo's `.git/config` (same as Cursor's own injection); fine-grained scope limits blast radius.
-
-**tmux on Cursor VMs:** scripts use [`lib/tmux.sh`](lib/tmux.sh) — auto-selects `/exec-daemon/tmux.portal.conf` when present, else plain `tmux`.
-
----
-
-## Shared agent system
-
-[`agent-system/`](agent-system/) is the portable source of truth shared by
-Codex, Claude Code, and Cursor. It follows Peter Steinberger's public
-`agent-scripts` architecture: one terse global rules file, dynamically loaded
-skills, pointer-style repository instructions, skill-owned hooks, concise
-handoff/pickup, and one active plan for genuinely multi-session projects.
-
-The imported system is intentionally model-neutral and excludes Peter's
-personal accounts, machine routing, OpenClaw-only infrastructure, and pinned
-reviewer models. Upstream references used for this snapshot:
-
-- `steipete/agent-scripts` at `d42cf80a3206db86270a75414b8f8a62cd389ccb`
-- `openclaw/agent-skills` at `4664d27da471d1cb71bebdd9845dc8a6c56d6bbe`
-- `behavior-validator` is vendored from `openclaw/agent-skills` under its MIT
-  license. The path-scoped commit pattern is adapted from `agent-scripts`
-  under its MIT license. Structured review and sanitized session recovery adapt
-  the contracts of OpenClaw's `autoreview` and `agent-transcript`; recoverable
-  deletion follows Peter's `trash.ts`. The implementations here remain lean,
-  host-neutral, and free of reviewer identity pins.
-
-### Installed catalog
-
-- `handoff`: compact pause/resume evidence.
-- `pickup`: reconstruct current state, recover a dead local session when needed,
-  and continue without loading unrelated history.
-- `delegate`: write a portable, model-neutral role assignment.
-- `review`: freeze an exact code candidate, run findings-first independent
-  review, validate structured output, and record exact-head proof.
-- `behavior-validator`: Peter's source-blind user-visible behavior contract.
-- `fix-issue`: reproduce, repair, test, and complete authorized issue delivery.
-- `land`: verify and complete commit/push/merge delivery without repeated gates.
-- `release`: prepare, publish, and verify repository-native releases.
-- `portfolio`: coordinate repository ownership, cross-host leases, serialized
-  public mutations, active waits, and scheduled recovery without a diary.
-- `maintain-skills`: validate skill structure, hooks, duplicates, and metadata
-  context cost.
-- `capabilities`: generate the current host tool and skill inventory on demand.
-
-Repo-specific workflows stay in their owning repo. For example, Ashwren's
-`books` roles and hooks live in `.agents/skills/books`, not in this global
-catalog.
-
-### Host wiring
-
-Run directly on any machine:
+`agent-system/` is a Git submodule, not a vendored copy. Bootstrap always runs:
 
 ```bash
-./agent-system/install.sh
+git submodule sync --recursive
+git submodule update --init --recursive
 ```
 
-The installer is idempotent and creates these adapters:
-
-- `~/.agents/AGENTS.md`, `skills/`, `hooks/`, and `bin/docs-list`
-- `~/.codex/AGENTS.md`, global prompts, and hook configuration
-- `~/.claude/CLAUDE.md`, `AGENTS.md`, flat skills, commands, and hooks
-- `~/.cursor/rules/global-engineering.mdc`, commands, and hooks
-- `~/.local/bin/docs-list`, `agent-docs-list`, `agent-system-doctor`,
-  `committer`, `agent-skill-audit`, `agent-capabilities`, and
-  `agent-repo-inventory`
-- `~/.local/bin/agent-autoreview`, `agent-lease`, `agent-session-recover`, and
-  `agent-trash`
-
-It disables Claude auto-memory and Codex memories, removes host model pins so
-models remain task-prompt assignments, preserves unrelated host settings, and
-removes known legacy plugin config. Set
-`AGENT_SYSTEM_PRUNE_LEGACY=1` to remove known Cal/reviewer files during an
-upgrade; `bootstrap.sh` enables that cleanup on VMs.
-
-### Repository pointer
-
-Each repo keeps a small project guide beginning with:
-
-```text
-READ ~/.agents/AGENTS.md BEFORE ANYTHING (skip if missing).
-```
-
-Keep product facts below that line. Use `CLAUDE.md -> AGENTS.md`; store product
-skills in `.agents/skills/<name>` and expose those to Claude with per-skill
-symlinks only when needed. Cursor and Codex discover the root `AGENTS.md` and
-`.agents/skills` directly.
-
-Large cross-cutting projects get one `docs/plan/<project>.md`. Ordinary tasks
-get no plan file. Run `agent-docs-list` to list `summary` and `read_when`
-metadata without loading every document.
-
-### Review and orchestration
-
-The catalog stays at eleven always-visible skills. Deterministic helpers carry
-the larger mechanics outside model context:
-
-- `agent-autoreview` freezes a canonical committed diff, rejects sensitive
-  bundle input, binds changed-file snapshots into its fingerprint, validates
-  structured findings, and publishes an idempotent fingerprint-specific result.
-- `agent-lease` uses expiring remote Git refs in this coordination repository.
-  Empty-tree commits, atomic creation, compare-and-swap renewal/deletion, and
-  candidate SHA fencing serialize local, VM, and cloud workers without a global
-  memory file. Expired ownership requires explicit external-state reconciliation.
-- `agent-session-recover` finds local Codex and Claude JSONL sessions and emits
-  a small redacted extract containing visible task turns only.
-- `agent-trash` moves routine cleanup to the platform Trash.
-
-Cursor Automations are thin triggers. Use the prompt templates beside the
-owning skills:
-
-- `agent-system/skills/review/references/cursor-automation.md`
-- `agent-system/skills/portfolio/references/cursor-orchestration.md`
-
-Event-triggered review handles fresh changes; nightly reconciliation catches a
-missed exact SHA. A five-minute orchestration heartbeat is enabled only while a
-project or portfolio is actively monitored. Neither automation uses Cursor
-Memories.
-
-Validate the portable layer with:
+To update it deliberately:
 
 ```bash
-./agent-system/validate.sh
+git -C agent-system fetch origin
+git -C agent-system checkout --detach <verified-sha>
+./validate.sh
+git add agent-system
 ```
 
-Validation includes shell and Python syntax, strict skill and hook auditing,
-installer/doctor integration, helper behavior, and host adapter tests. GitHub
-Actions runs the same gate for changes to the portable system.
+Use a shared SHA whose own Linux and macOS validation is green. The VM gate
+then proves that exact pin with VM bootstrap and adapter behavior.
 
-### Standard invocations
+## Standard Invocations
 
-The installer adds one managed source block to Bash and Zsh startup files.
-After opening a new shell, ordinary interactive commands use these defaults:
+The shared installer receives `--host-integration "$REPO/host"`, so ordinary
+VM shell commands use this repository's adapters:
 
-- `claude`: starts the session with Remote Control and
-  `bypassPermissions` enabled.
-- `codex`: ensures the durable Remote Control daemon is running, then starts
-  the TUI with approvals, sandboxing, and managed hook-trust prompts bypassed.
+- `claude` starts interactive work with Remote Control and
+  `bypassPermissions` unless the command is administrative or noninteractive.
+- `codex` prefers the standalone package, starts durable Remote Control when
+  needed, and launches interactive work with approval, sandbox, and managed
+  hook-trust prompts bypassed.
 
-Native user config also persists Claude `bypassPermissions` and Codex
-`approval_policy = "never"` plus `sandbox_mode = "danger-full-access"`, so
-noninteractive and explicitly invoked workflows inherit the same permission
-policy. Utility commands such as `doctor`, `login`, `update`, `claude -p`, and
-`codex exec` do not start Remote Control. Set `AGENT_REMOTE_CONTROL=0` for a
-one-command opt-out. This baseline assumes a user-owned, trusted machine;
-change these defaults before installing it on a shared host.
-
----
+Set `AGENT_REMOTE_CONTROL=0` for a one-command opt-out. These defaults assume a
+user-owned trusted VM.
 
 ## Claude Code
 
-Scripts in [`claude-code/`](claude-code/):
-
-| File | Purpose |
-|------|---------|
-| `restore-claude-credentials.sh` | Rehydrate `~/.claude/.credentials.json` from a base64 env secret so a fresh VM session authenticates without an interactive login. |
-| `start-remote-control.sh` | Launch bypass-permissions Remote Control in a persistent `tmux` session so a phone/laptop can drive the VM. |
-
-### Why this works on a VM with no inbound network
-
-Claude Code is a headless Node CLI — no GUI needed. **Remote Control dials
-outbound over HTTPS 443**: the VM opens a persistent connection up to Claude,
-and your phone/laptop talks to Claude, which relays commands back down that
-outbound channel. Because the VM reaches *out* (rather than you reaching *in*),
-it needs no public inbound route, no port forwarding, and no SSH relay.
-
-### One-time setup
-
-1. On a machine where Claude Code is already logged in, capture the credentials:
-
-   ```bash
-   base64 -w0 ~/.claude/.credentials.json
-   ```
-
-   (Remote Control needs the **full** credentials JSON, including
-   `claudeAiOauth.refreshToken` — not just an OAuth token.)
-
-2. Store that base64 string as a **secret env var** named
-   `CLAUDE_CODE_CREDENTIALS_B64` in your VM platform's secret manager. Do **not**
-   commit it or paste it into a chat/log.
-
-   > Some platforms cap secret length (e.g. ~4096 chars). If you hit the limit,
-   > store a minimal credentials JSON containing only the `claudeAiOauth` block.
-
-3. Have your VM run `claude-code/restore-claude-credentials.sh` on boot / session start.
-
-### Usage
+On an authenticated machine, encode the credentials file and store the result
+as `CLAUDE_CODE_CREDENTIALS_B64`:
 
 ```bash
-# Rehydrate credentials for the current project directory:
-CLAUDE_PROJECT_DIR="$PWD" ./claude-code/restore-claude-credentials.sh
-
-# Start Remote Control (customize the name shown in the app):
-RC_NAME="My VM" CLAUDE_PROJECT_DIR="$PWD" ./claude-code/start-remote-control.sh
+base64 < ~/.claude/.credentials.json | tr -d '\n'
 ```
 
-Then open the **Code** tab in the Claude mobile app, or visit
-<https://claude.ai/code>, on a device signed into the same Claude account.
+Restore and start a persistent remote session with:
 
-### Requirements & caveats
+```bash
+CLAUDE_PROJECT_DIR="$PWD" ./claude-code/restore-claude-credentials.sh
+CLAUDE_PROJECT_DIR="$PWD" ./claude-code/start-remote-control.sh
+```
 
-- **Real OAuth login required.** Remote Control needs a Pro/Max/Team/Enterprise
-  plan login. `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` are
-  inference-only and **cannot** start Remote Control — leave them unset for RC
-  sessions. (Team/Enterprise orgs must enable Remote Control in admin settings.)
-- **Keep the tmux pane alive.** Detaching (`Ctrl-b d`) is fine; killing the pane
-  or going offline more than ~10 minutes ends the session.
-- **Never commit the credential blob.** It's a long-lived secret. Keep it in the
-  platform secret store only. See `.gitignore`.
-- **Optional SSH** is a separate concern: raw inbound SSH would need an outbound
-  relay (Tailscale userspace, cloudflared, reverse SSH). Remote Control does not.
-
----
+Claude Remote Control requires a real Claude subscription OAuth login. An
+Anthropic API key is not a substitute. The session runs in VM-aware `tmux` and
+uses outbound HTTPS, so no inbound VM port is required.
 
 ## Codex CLI
 
-Scripts in [`codex/`](codex/):
-
-| File | Purpose |
-|------|---------|
-| `install-standalone.sh` | Install the official standalone Codex package required by the managed Remote Control daemon. |
-| `ensure-codex-config.sh` | Force `cli_auth_credentials_store = "file"` so credentials live in `auth.json` (required on headless VMs). |
-| `restore-codex-credentials.sh` | Rehydrate `~/.codex/auth.json` from base64 secret `CODEX_AUTH_JSON_B64`. |
-| `start-remote-control.sh` | Start the durable Codex app-server with Remote Control enabled. |
-| `start-device-auth.sh` | Launch `codex login --device-auth` in tmux (headless OAuth). |
-| `export-codex-auth-b64.sh` | Print base64 of `auth.json` for the Cursor secret (after login). |
-
-### Headless OAuth (device code)
-
-On a VM with no browser, use **device auth** (not the localhost redirect flow):
+For a headless first login:
 
 ```bash
+./codex/install-standalone.sh
 ./codex/ensure-codex-config.sh
 ./codex/start-device-auth.sh
-# Open https://auth.openai.com/codex/device and enter the one-time code from the log
 ```
 
-After `codex login status` shows logged in:
+After `codex login status` succeeds, export the compressed credential payload:
 
 ```bash
-./codex/export-codex-auth-b64.sh   # gzip+base64 → store as secret CODEX_AUTH_JSON_B64 (~3.5k chars)
+./codex/export-codex-auth-b64.sh
 ```
 
-### Persist on fresh VMs
+Store that output as `CODEX_AUTH_JSON_B64`. Bootstrap restores it to file-backed
+credential storage and starts the standalone Remote Control daemon. Do not
+commit `auth.json`, credential JSON, base64 payloads, `.env` files, or tokenized
+remote URLs.
 
-1. Store the export output as **`CODEX_AUTH_JSON_B64`** in your platform secret manager.
-2. On boot / session start:
+## Validation
+
+Run the complete VM gate:
 
 ```bash
-./codex/ensure-codex-config.sh
-./codex/restore-codex-credentials.sh
+./validate.sh
 ```
 
-3. Verify: `codex login status` and `codex exec "say ok"`.
+It checks:
 
-### Requirements & caveats
+- exact and clean shared-system submodule state;
+- shared policy, skill, hook, installer, and helper tests;
+- VM host-adapter invocation behavior;
+- bootstrap argument and credential-restore ordering;
+- fresh-home installation through the VM adapter;
+- shell syntax, repository wiring, and whitespace.
 
-- **ChatGPT subscription or API key** — device auth uses ChatGPT login; API-key login uses a different `auth.json` shape (also supported by restore).
-- **File storage only for restore** — keyring/Secret Service credentials cannot be rehydrated from a secret; `ensure-codex-config.sh` sets `file`.
-- **Secret size** — ChatGPT OAuth `auth.json` exceeds Cursor My Secrets' ~4096 char limit when base64-encoded raw; `export-codex-auth-b64.sh` gzip-compresses first (~3464 chars). `restore-codex-credentials.sh` accepts gzip or plain JSON payloads.
-- **Never commit `auth.json` or the b64 blob.**
-
----
-
-## Codex (CLI + Desktop) — legacy note
-
-Desktop-specific remote workflows may be documented here later. CLI auth + restore above is sufficient for Cloud Agent VMs.
-
----
-
-## Security
-
-Scripts read credentials from the environment and write `chmod 600` files. No
-secret value is ever stored in this repo. `.gitignore` blocks common secret
-filenames as a backstop.
+GitHub Actions checks out submodules recursively and runs the same command.
