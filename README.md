@@ -60,8 +60,8 @@ To update it deliberately:
 ```bash
 git -C agent-system fetch origin
 git -C agent-system checkout --detach <verified-sha>
-./validate.sh
 git add agent-system
+./validate.sh
 ```
 
 Use a shared SHA whose own Linux and macOS validation is green. The VM gate
