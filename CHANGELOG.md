@@ -10,6 +10,13 @@ This file records user-visible changes to the coding-agent VM setup.
   the current global delivery and continuity policy.
 - Add changelog coverage to the VM validation workflow.
 
+### Fixed
+
+- `validate.sh` and `bootstrap.sh` inject `safe.directory` for the
+  `agent-system` submodule via `GIT_CONFIG_COUNT` environment variables, so the
+  gate and bootstrap path work on VMs where the submodule directory is not
+  owned by the invoking user and the global git config is read-only or absent.
+
 ## 2026-07-13
 
 ### Added

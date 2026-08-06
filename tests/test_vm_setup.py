@@ -27,7 +27,15 @@ class VMSetupTests(unittest.TestCase):
         self.assertEqual(index[0], "160000")
         expected = index[1]
         actual = subprocess.run(
-            ["git", "-C", str(ROOT / "agent-system"), "rev-parse", "HEAD"],
+            [
+                "git",
+                "-c",
+                f"safe.directory={ROOT / 'agent-system'}",
+                "-C",
+                str(ROOT / "agent-system"),
+                "rev-parse",
+                "HEAD",
+            ],
             text=True,
             capture_output=True,
             check=True,
@@ -53,12 +61,51 @@ class VMSetupTests(unittest.TestCase):
         )
         self.assertFalse(
             subprocess.run(
-                ["git", "-C", str(ROOT / "agent-system"), "status", "--porcelain"],
+                [
+                    "git",
+                    "-c",
+                    f"safe.directory={ROOT / 'agent-system'}",
+                    "-C",
+                    str(ROOT / "agent-system"),
+                    "status",
+                    "--porcelain",
+                ],
                 text=True,
                 capture_output=True,
                 check=True,
             ).stdout.strip()
         )
+
+    def test_submodule_git_commands_bypass_safe_directory_without_global_config(self):
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"}
+        for key in list(env):
+            if key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
+                del env[key]
+        env.pop("GIT_CONFIG_COUNT", None)
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess.run(
+                ["git", "-C", str(ROOT / "agent-system"), "rev-parse", "HEAD"],
+                text=True,
+                capture_output=True,
+                check=True,
+                env=env,
+            )
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={ROOT / 'agent-system'}",
+                "-C",
+                str(ROOT / "agent-system"),
+                "rev-parse",
+                "HEAD",
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+        self.assertRegex(result.stdout.strip(), r"^[0-9a-f]{40}$")
 
     def test_vm_launchers_apply_interactive_defaults_only(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -101,6 +148,9 @@ class VMSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             env = {**os.environ, "HOME": str(home)}
+            original_gitconfig = Path.home() / ".gitconfig"
+            if original_gitconfig.exists():
+                env["GIT_CONFIG_GLOBAL"] = str(original_gitconfig)
             install = subprocess.run(
                 [
                     str(ROOT / "agent-system" / "install.sh"),
