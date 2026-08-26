@@ -24,6 +24,29 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODING_AGENT_VM_SETUP="${CODING_AGENT_VM_SETUP:-$ROOT}"
 SHARED_REPO_SLUG="${SHARED_REPO_SLUG:-hermes-os/coding-agent-vm-setup}"
 
+# In containerized or multi-user VMs the submodule directory may not be owned
+# by the invoking user and the global git config may be read-only. Inject the
+# safe.directory entry via the environment so all git commands in this script
+# and any child processes can access the submodule.
+if [[ -v GIT_CONFIG_COUNT ]]; then
+  count=$GIT_CONFIG_COUNT
+  while [[ ${#count} -gt 1 && ${count:0:1} == 0 ]]; do
+    count=${count:1}
+  done
+  if [[ ! "$count" =~ ^[0-9]+$ ]] ||
+    (( ${#count} > 10 )) ||
+    (( 10#$count > 2147483646 )); then
+    echo "invalid GIT_CONFIG_COUNT: expected a non-negative decimal count" >&2
+    exit 2
+  fi
+  idx=$((10#$count))
+else
+  idx=0
+fi
+export "GIT_CONFIG_KEY_${idx}=safe.directory"
+export "GIT_CONFIG_VALUE_${idx}=${CODING_AGENT_VM_SETUP}/agent-system"
+export "GIT_CONFIG_COUNT=$((idx + 1))"
+
 if [[ -d "${CODING_AGENT_VM_SETUP}/.git" ]]; then
   # Self-update is best-effort: a non-fast-forward, an expired PAT, or being
   # offline must never block credential restore below.
