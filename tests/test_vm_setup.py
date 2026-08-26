@@ -107,6 +107,85 @@ class VMSetupTests(unittest.TestCase):
         )
         self.assertRegex(result.stdout.strip(), r"^[0-9a-f]{40}$")
 
+    def test_submodule_git_commands_accept_safe_directory_from_environment(self):
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"}
+        for key in list(env):
+            if key.startswith("GIT_CONFIG_KEY_") or key.startswith("GIT_CONFIG_VALUE_"):
+                del env[key]
+        env.update(
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "safe.directory",
+                "GIT_CONFIG_VALUE_0": str(ROOT / "agent-system"),
+            }
+        )
+        result = subprocess.run(
+            ["git", "-C", str(ROOT / "agent-system"), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+        self.assertRegex(result.stdout.strip(), r"^[0-9a-f]{40}$")
+
+    def test_bootstrap_exports_literal_safe_directory_environment_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            marker = base / "eval-ran"
+            fixture = base / "vm;$(touch eval-ran)"
+            fixture.mkdir()
+            log = base / "env.log"
+            stub_bin = base / "bin"
+            write_executable(
+                stub_bin / "git",
+                "#!/usr/bin/env bash\n"
+                'printf "%s\\n" "$GIT_CONFIG_COUNT|$GIT_CONFIG_KEY_3|$GIT_CONFIG_VALUE_3" >>"$VM_TEST_LOG"\n',
+            )
+            env = {
+                **os.environ,
+                "PATH": f"{stub_bin}:/usr/bin:/bin",
+                "VM_TEST_LOG": str(log),
+                "CODING_AGENT_VM_SETUP": str(fixture),
+                "GIT_CONFIG_COUNT": "3",
+            }
+            for key in (
+                "SHARED_REPO_TOKEN",
+                "CLAUDE_CODE_CREDENTIALS_B64",
+                "CODEX_AUTH_JSON_B64",
+            ):
+                env.pop(key, None)
+
+            result = subprocess.run(
+                [str(ROOT / "bootstrap.sh")],
+                env=env,
+                cwd=base,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(
+                log.read_text(encoding="utf-8").splitlines()[0],
+                f"4|safe.directory|{fixture / 'agent-system'}",
+            )
+
+    def test_safe_directory_setup_rejects_malformed_inherited_counts(self):
+        for script in (ROOT / "bootstrap.sh", ROOT / "validate.sh"):
+            for count in ("", "-1", "not-a-count", "1;touch /tmp/unexpected"):
+                with self.subTest(script=script.name, count=count):
+                    env = {**os.environ, "GIT_CONFIG_COUNT": count}
+                    result = subprocess.run(
+                        [str(script)],
+                        env=env,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("invalid GIT_CONFIG_COUNT", result.stderr)
+
     def test_vm_launchers_apply_interactive_defaults_only(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
