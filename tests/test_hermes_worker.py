@@ -353,6 +353,16 @@ class HermesWorkerBridgeTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
+    @staticmethod
+    def detach_stdin(process):
+        # Python 3.11's communicate() flushes process.stdin and raises
+        # ValueError if the test already closed it; 3.12+ tolerates that.
+        # Taking the pipe away keeps the caller's writes and communicate()
+        # from touching the same file object.
+        stdin = process.stdin
+        process.stdin = None
+        return stdin
+
     def run_bridge(
         self,
         *,
@@ -816,8 +826,9 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         )
         child_pid = None
         try:
-            process.stdin.write("diagnostic overflow")
-            process.stdin.close()
+            stdin = self.detach_stdin(process)
+            stdin.write("diagnostic overflow")
+            stdin.close()
             child_pid = self.read_ready_pid(pid_file)
             stdout, stderr = process.communicate(timeout=5)
             events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
@@ -1068,11 +1079,12 @@ class HermesWorkerBridgeTests(unittest.TestCase):
             },
         )
         writer_error = []
+        stdin = self.detach_stdin(process)
 
         def write_task():
             try:
-                process.stdin.write(b"x" * (4 * 1024 * 1024))
-                process.stdin.close()
+                stdin.write(b"x" * (4 * 1024 * 1024))
+                stdin.close()
             except (BrokenPipeError, OSError) as exc:
                 writer_error.append(exc)
 
@@ -1169,8 +1181,9 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         )
         child_pid = None
         try:
-            process.stdin.write("interrupt this task")
-            process.stdin.close()
+            stdin = self.detach_stdin(process)
+            stdin.write("interrupt this task")
+            stdin.close()
             child_pid = self.read_ready_pid(pid_file)
             process.send_signal(signal.SIGTERM)
             stdout, stderr = process.communicate(timeout=10)
