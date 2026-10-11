@@ -18,8 +18,8 @@ worker boundary (`AGENT_WORKER_MANAGED=1`) and the inherited
 precondition, not filesystem isolation. The root-owned broker must continue to
 provide the systemd and repository read/write boundary.
 
-The fresh path creates a new mode-0700 runtime home and copies the checked-in
-`config.yaml` as a mode-0400 file. It also writes the immutable
+The fresh path creates a new mode-0700 runtime home and copies the checked-in per-access
+`config.read.yaml` or `config.write.yaml` as a mode-0400 `config.yaml`. It also writes the immutable
 `.no-bundled-skills` marker, so Hermes' startup seeding installs only its
 canonical `hermes-agent` procedure instead of the full bundled catalog. Resume
 requires an existing mode-0700 home owned by the caller with the byte-identical
@@ -57,7 +57,7 @@ logged by the bridge; the broker still owns credential policy.
 
 The Hermes command is not selected from `AGENT_HERMES_BIN` or inherited
 `PATH`. It is pinned to release
-`ee5b5ec21e576ccf9b941f9ff71330418415a5cb` under
+`9caa21336d278b614e99a58e302f48894ff0dbd7` under
 `/opt/agent-worker-hermes/releases/`, and the bridge verifies the root-owned,
 worker-nonwritable launcher, every import-affecting entry in the staged source
 and interpreter trees, their contained symlinks, Python linkage, and exact
@@ -149,7 +149,7 @@ successful fixture test is not a live model or broker acceptance result.
 
 The adapter is pinned in code to the staged Hermes Agent v0.21.0 runtime
 (Python 3.11.16), release source directory
-`/opt/agent-worker-hermes/releases/ee5b5ec21e576ccf9b941f9ff71330418415a5cb/source`,
+`/opt/agent-worker-hermes/releases/9caa21336d278b614e99a58e302f48894ff0dbd7/source`,
 whose inspected upstream source commit is
 `245e48008fa814b3251f50755eb656bd9fb86cb1`. The resume preflight depends on
 that release's read-only SQLite `sessions`/`messages` schema and native

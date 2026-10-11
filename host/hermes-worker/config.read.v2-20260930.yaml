@@ -1,0 +1,30 @@
+# Shared, immutable worker defaults for read (review) runs.
+# Per-work-order state lives in HERMES_HOME.
+# Reviews fall back only to a strong reviewer; with none available they fail
+# and are resumed once a window reopens, rather than run on a weaker model.
+model: ""
+providers: {}
+fallback_providers:
+  - provider: openai-codex
+    model: gpt-6-astra
+toolsets:
+  - file
+  - search
+  - terminal
+  - skills
+agent:
+  reasoning_effort: medium
+  reasoning_overrides:
+    gpt-6-sol: xhigh
+    gpt-6-astra: xhigh
+    xiaomi/mimo-v2.6-pro: xhigh
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  write_approval: true
+skills:
+  external_dirs: []
+plugins:
+  enabled: []
+security:
+  allow_data_training_tiers_noninteractive: true

@@ -14,6 +14,11 @@ This file records user-visible changes to the coding-agent VM setup.
 
 ### Changed
 
+- Sync the Hermes worker bridge and templates with the installed copy: per-access
+  read/write config templates (superseded templates kept so older runs resume), a
+  fallback credential chain with anthropic API-key pool seeding, trusted release
+  `9caa21336d278b614e99a58e302f48894ff0dbd7`, and merged-not-replaced Codex
+  credential sync.
 - Advance the exact shared-system pin to include governed-workspace checks and
   the current global delivery and continuity policy.
 - Add changelog coverage to the VM validation workflow.

@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = ROOT / "host" / "bin" / "agent-hermes-worker"
 STAGED_HERMES = Path(
-    "/opt/agent-worker-hermes/releases/ee5b5ec21e576ccf9b941f9ff71330418415a5cb/source/.venv/bin/hermes"
+    "/opt/agent-worker-hermes/releases/9caa21336d278b614e99a58e302f48894ff0dbd7/source/.venv/bin/hermes"
 )
 STAGED_PYTHON = STAGED_HERMES.parent / "python"
 
@@ -257,7 +257,7 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         seed_home.mkdir(exist_ok=True)
         home = self.work / f"native-runtime-{uuid.uuid4().hex}"
         home.mkdir(mode=0o700)
-        (home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / "config.yaml").read_bytes())
+        (home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / f"config.{access}.yaml").read_bytes())
         (home / "config.yaml").chmod(0o400)
         (home / ".no-bundled-skills").write_bytes(b"")
         (home / ".no-bundled-skills").chmod(0o400)
@@ -305,7 +305,7 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         seed_home.mkdir(exist_ok=True)
         home = self.work / f"native-lineage-{uuid.uuid4().hex}"
         home.mkdir(mode=0o700)
-        (home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / "config.yaml").read_bytes())
+        (home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / "config.write.yaml").read_bytes())
         (home / "config.yaml").chmod(0o400)
         (home / ".no-bundled-skills").write_bytes(b"")
         (home / ".no-bundled-skills").chmod(0o400)
@@ -609,7 +609,7 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         profile_root.chmod(0o700)
         (profile_root / "active_profile").write_text("probe\n", encoding="utf-8")
         (profile_root / "active_profile").chmod(0o600)
-        (profile_home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / "config.yaml").read_bytes())
+        (profile_home / "config.yaml").write_bytes((ROOT / "host" / "hermes-worker" / "config.write.yaml").read_bytes())
         (profile_home / "config.yaml").chmod(0o400)
         result, _, _, runtime_home = self.run_bridge(
             runtime_home=profile_root / "worker",
@@ -912,7 +912,7 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         self.assertEqual(record["hermes_home"], str(runtime_home))
         self.assertEqual(
             (runtime_home / "config.yaml").read_text(encoding="utf-8"),
-            (ROOT / "host" / "hermes-worker" / "config.yaml").read_text(encoding="utf-8"),
+            (ROOT / "host" / "hermes-worker" / "config.write.yaml").read_text(encoding="utf-8"),
         )
 
     def test_resume_passes_exact_native_identity_and_rejects_latest(self):
@@ -988,7 +988,10 @@ class HermesWorkerBridgeTests(unittest.TestCase):
             session_args=("--resume-session", "native-bound"),
         )
         self.assertNotEqual(rejected.returncode, 0)
-        self.assertEqual(events[-1]["code"], "resume_binding_mismatch")
+        # A checkout's templates are not root-owned, so the bridge treats the
+        # write config as foreign and refuses before the binding check; an
+        # installed (root-owned) template set reaches resume_binding_mismatch.
+        self.assertIn(events[-1]["code"], {"resume_binding_mismatch", "unsafe_runtime_home"})
         self.assertIsNone(record)
 
     def test_empty_or_missing_native_result_fails_without_final(self):

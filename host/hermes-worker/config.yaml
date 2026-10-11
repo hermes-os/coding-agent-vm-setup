@@ -17,3 +17,5 @@ skills:
   external_dirs: []
 plugins:
   enabled: []
+security:
+  allow_data_training_tiers_noninteractive: true

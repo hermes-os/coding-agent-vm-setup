@@ -2,6 +2,7 @@
 """Run one Hermes Agent task inside the existing managed worker boundary."""
 
 import argparse
+import base64
 import contextlib
 import fcntl
 import json
@@ -22,7 +23,7 @@ from urllib.parse import quote
 EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 TOOLSETS = "file,search,terminal,skills"
 TRUSTED_HERMES_SOURCE = Path(
-    "/opt/agent-worker-hermes/releases/ee5b5ec21e576ccf9b941f9ff71330418415a5cb/source"
+    "/opt/agent-worker-hermes/releases/9caa21336d278b614e99a58e302f48894ff0dbd7/source"
 )
 TRUSTED_HERMES_LAUNCHER = TRUSTED_HERMES_SOURCE / ".venv/bin/hermes"
 TRUSTED_HERMES_PYTHON = TRUSTED_HERMES_SOURCE / ".venv/bin/python"
@@ -67,7 +68,13 @@ MAX_RESULT_BYTES = 8 * 1024 * 1024
 MAX_DIAGNOSTIC_LINE_BYTES = 256 * 1024
 PIPE_DRAIN_SECONDS = 2.0
 SESSION_LINE = re.compile(r"^\s*session_id:\s*(\S+)\s*$")
-TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "hermes-worker" / "config.yaml"
+TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "hermes-worker"
+ACCESS_TEMPLATE_PATHS = {
+    "read": TEMPLATE_DIR / "config.read.yaml",
+    "write": TEMPLATE_DIR / "config.write.yaml",
+}
+# Credentials the fallback chains may need, seeded beside the primary route's.
+FALLBACK_AUTH_PROVIDERS = ("openai-codex", "openrouter")
 BRIDGE_STATE_NAME = "bridge-state.json"
 BRIDGE_STATE_VERSION = 1
 NATIVE_STATE_NAME = "state.db"
@@ -238,13 +245,50 @@ def require_managed_boundary(access):
         raise BridgeError("boundary_required", "worker access mode does not match the boundary")
 
 
-def read_template():
+def _read_template_file(path):
     try:
-        if TEMPLATE_PATH.is_symlink() or not TEMPLATE_PATH.is_file():
+        if path.is_symlink() or not path.is_file():
             raise OSError
-        return TEMPLATE_PATH.read_bytes()
+        return path.read_bytes()
     except OSError as exc:
         raise BridgeError("invalid_template", "worker template is unavailable") from exc
+
+
+def read_template(access):
+    return _read_template_file(ACCESS_TEMPLATE_PATHS[access])
+
+
+def _known_templates():
+    """Every root-owned worker template, so runs started on an older one can resume."""
+    known = set()
+    try:
+        candidates = sorted(TEMPLATE_DIR.glob("config*.yaml"))
+    except OSError:
+        return known
+    for candidate in candidates:
+        try:
+            info = candidate.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o222:
+            known.add(candidate.read_bytes())
+    return known
+
+
+def _replace_readonly_file(path, content):
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+        try:
+            if os.write(descriptor, content) != len(content):
+                raise OSError
+            os.fchmod(descriptor, 0o400)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def check_directory(path, *, fresh):
@@ -275,8 +319,8 @@ def check_directory(path, *, fresh):
         raise BridgeError("unsafe_runtime_home", "runtime home ownership or mode is unsafe")
 
 
-def prepare_runtime_home(path, *, fresh):
-    template = read_template()
+def prepare_runtime_home(path, *, fresh, access):
+    template = read_template(access)
     check_directory(path, fresh=fresh)
     config = path / "config.yaml"
     no_bundled_skills = path / ".no-bundled-skills"
@@ -300,8 +344,13 @@ def prepare_runtime_home(path, *, fresh):
             descriptor = os.open(no_bundled_skills, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
             os.close(descriptor)
         else:
-            if not config.is_file() or config.read_bytes() != template:
+            if not config.is_file():
                 raise BridgeError("unsafe_runtime_home", "resume runtime template does not match")
+            current = config.read_bytes()
+            if current != template:
+                if current not in _known_templates():
+                    raise BridgeError("unsafe_runtime_home", "resume runtime template does not match")
+                _replace_readonly_file(config, template)
             info = config.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o222:
                 raise BridgeError("unsafe_runtime_home", "runtime configuration is mutable")
@@ -364,25 +413,111 @@ def _write_private_json(path, value, *, exclusive=False):
         temporary.unlink(missing_ok=True)
 
 
+def _worker_pool_auth_payload(provider):
+    """Credential-pool seed for API-key providers (e.g. openrouter) from the shared worker store."""
+    source = WORKER_HERMES_HOME / "auth.json"
+    try:
+        if source.is_symlink() or not source.is_file():
+            return None
+        stored = json.loads(source.read_text(encoding="utf-8-sig"))
+        pool = stored.get("credential_pool")
+        entries = pool.get(provider) if isinstance(pool, dict) else None
+        if not isinstance(entries, list) or not entries:
+            return None
+        usable = [e for e in entries if isinstance(e, dict) and e.get("access_token")]
+        if not usable:
+            return None
+        return {
+            "version": stored.get("version", 1),
+            "providers": {},
+            "credential_pool": {provider: [dict(e) for e in usable]},
+        }
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+# anthropic seeds only the manual API-key rows; Hermes appends the Claude OAuth
+# (claude_code) row after them at load, so the key is spent first.
+SEEDED_POOL_PROVIDERS = frozenset({"openrouter", "anthropic"})
+
+
+def _merge_auth_payloads(payloads):
+    merged = {"version": 1, "providers": {}, "credential_pool": {}}
+    for payload in payloads:
+        merged["version"] = payload.get("version", merged["version"])
+        merged["providers"].update(payload.get("providers") or {})
+        merged["credential_pool"].update(payload.get("credential_pool") or {})
+        if payload.get("active_provider"):
+            merged.setdefault("active_provider", payload["active_provider"])
+    return merged
+
+
+def _auth_payload_for(provider):
+    if provider == "openai-codex":
+        return _worker_codex_auth_payload()
+    if provider in SEEDED_POOL_PROVIDERS:
+        return _worker_pool_auth_payload(provider)
+    return None
+
+
 def seed_worker_auth(runtime_home, provider):
-    if provider != "openai-codex":
-        return
+    """Seed the primary route's credentials plus every fallback route's.
+
+    A run whose auth store predates its fallback chain gains only the missing
+    providers; state it already holds (possibly freshly refreshed) is kept."""
     target = runtime_home / "auth.json"
-    if target.exists():
-        if target.is_symlink() or not target.is_file():
-            raise BridgeError("unsafe_runtime_home", "runtime auth store is unsafe")
+    if target.is_symlink() or (target.exists() and not target.is_file()):
+        raise BridgeError("unsafe_runtime_home", "runtime auth store is unsafe")
+    wanted = dict.fromkeys((provider, *FALLBACK_AUTH_PROVIDERS))
+    fresh = {name: _auth_payload_for(name) for name in wanted}
+    fresh = {name: payload for name, payload in fresh.items() if payload is not None}
+    if not fresh:
         return
-    payload = _worker_codex_auth_payload()
-    if payload is not None:
+    if not target.exists():
+        merged = _merge_auth_payloads(fresh.values())
+        if provider != "openai-codex":
+            # Fallback credentials must not redirect a run whose primary is elsewhere.
+            merged.pop("active_provider", None)
         try:
-            _write_private_json(target, payload, exclusive=True)
+            _write_private_json(target, merged, exclusive=True)
         except FileExistsError:
             pass
+        return
+    try:
+        current = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise BridgeError("unsafe_runtime_home", "runtime auth store is unreadable") from exc
+    if not isinstance(current, dict):
+        raise BridgeError("unsafe_runtime_home", "runtime auth store is unreadable")
+    held = set((current.get("providers") or {}).keys()) | set((current.get("credential_pool") or {}).keys())
+    missing = [payload for name, payload in fresh.items() if name not in held]
+    changed = bool(missing)
+    shared_codex = fresh.get("openai-codex")
+    if shared_codex is not None and "openai-codex" in held:
+        # A refresh elsewhere spent this copy's single-use refresh token.
+        held_state = (current.get("providers") or {}).get("openai-codex")
+        if _codex_issued_at(shared_codex["providers"]["openai-codex"]) > _codex_issued_at(held_state):
+            current.setdefault("providers", {})["openai-codex"] = shared_codex["providers"]["openai-codex"]
+            changed = True
+    if changed:
+        merged = _merge_auth_payloads([*missing, current])
+        if provider != "openai-codex" and current.get("active_provider") != "openai-codex":
+            merged.pop("active_provider", None)
+        _write_private_json(target, merged)
+
+
+def _codex_issued_at(state):
+    """Access-token issue time; ChatGPT refresh tokens are single-use, so newest pair wins."""
+    try:
+        token = state["tokens"]["access_token"]
+        body = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        return float(claims.get("iat") or 0)
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+        return 0.0
 
 
 def sync_worker_auth(runtime_home, provider):
-    if provider != "openai-codex":
-        return
     source = runtime_home / "auth.json"
     if source.is_symlink() or not source.is_file():
         return
@@ -390,8 +525,33 @@ def sync_worker_auth(runtime_home, provider):
     lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        _write_private_json(WORKER_HERMES_HOME / "auth.json", json.loads(source.read_text(encoding="utf-8")))
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        try:
+            # Merge the refreshed provider state into the shared store instead of
+            # replacing the whole file: the runtime home only carries this
+            # provider, and a whole-file write drops every other provider's
+            # credentials (observed: an openai-codex sync erased the seeded
+            # openrouter pool entry). Any run may have refreshed ChatGPT through
+            # its fallback chain, so the check is by token age, not primary route.
+            # Only providers.openai-codex is written; credential_pool rows (the
+            # anthropic API key) are never copied back, so run-side rotation
+            # state cannot rewrite them.
+            refreshed = json.loads(source.read_text(encoding="utf-8"))
+            store_path = WORKER_HERMES_HOME / "auth.json"
+            try:
+                stored = json.loads(store_path.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                stored = {}
+            if not isinstance(stored, dict):
+                stored = {}
+            state = (refreshed.get("providers") or {}).get("openai-codex")
+            current = (stored.get("providers") or {}).get("openai-codex")
+            if isinstance(state, dict) and _codex_issued_at(state) > _codex_issued_at(current):
+                stored.setdefault("version", refreshed.get("version", 1))
+                stored.setdefault("providers", {})["openai-codex"] = state
+                stored["active_provider"] = "openai-codex"
+                _write_private_json(store_path, stored)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def _parse_native_model_config(value):
@@ -1042,7 +1202,7 @@ def main(argv=None):
             raise BridgeError("invalid_task", "task input must be non-empty text")
 
         runtime = resolve_hermes_runtime()
-        prepare_runtime_home(runtime_home, fresh=args.fresh_session)
+        prepare_runtime_home(runtime_home, fresh=args.fresh_session, access=args.access)
         seed_worker_auth(runtime_home, args.provider)
         resume_info = None
         if resume_session is not None:
