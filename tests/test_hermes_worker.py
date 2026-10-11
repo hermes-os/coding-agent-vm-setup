@@ -1057,6 +1057,34 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         self.assertEqual(config.read_bytes(), current)
         self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o400)
 
+    def test_resume_skips_unreadable_template_candidate(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores file read permissions")
+        templates = self.make_template_dir()
+        unreadable = templates / "config.aaa-unreadable.yaml"
+        unreadable.write_bytes(b"unreadable: true\n")
+        unreadable.chmod(0o000)
+        runtime_home = self.work / "runtime-unreadable-candidate"
+        fresh, _, _, _ = self.run_bridge(
+            runtime_home=runtime_home, access="read", session="native-unreadable", template_dir=templates
+        )
+        self.assertEqual(fresh.returncode, 0, fresh.stderr)
+        config = runtime_home / "config.yaml"
+        config.unlink()
+        config.write_bytes((templates / "config.read.v1.yaml").read_bytes())
+        config.chmod(0o400)
+
+        resumed, events, _, _ = self.run_bridge(
+            runtime_home=runtime_home,
+            access="read",
+            session="native-unreadable",
+            session_args=("--resume-session", "native-unreadable"),
+            template_dir=templates,
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual(events[-1]["event"], "final")
+        self.assertEqual(config.read_bytes(), (templates / "config.read.yaml").read_bytes())
+
     def test_empty_or_missing_native_result_fails_without_final(self):
         for behavior, code in (("empty", "empty_result"), ("no-session", "missing_native_session")):
             with self.subTest(behavior=behavior):
