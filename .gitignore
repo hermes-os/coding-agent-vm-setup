@@ -9,3 +9,7 @@ auth.json
 # Generated validation artifacts
 __pycache__/
 *.py[cod]
+
+# Local tool settings
+.claude/
+settings.local.json
