@@ -16,6 +16,14 @@ per-work-order state, not shared profile content. Worker-state provider plugin
 directories are rejected: executable provider code comes only from the staged
 deployment, never from the worker-writable runtime home.
 
+On resume, a run whose `config.yaml` matches any root-owned, read-only
+`config*.yaml` in this directory is upgraded to the current per-access template;
+anything else is rejected as `unsafe_runtime_home`. The superseded files
+(`config.yaml`, `config.read.v1.yaml`, `config.*.v2-20260930.yaml`) exist only for
+that purpose: [config.yaml](config.yaml) is the original single template, so
+keep it (and the other versioned files) installed for as long as runs started on
+them may be resumed.
+
 Provider and model are selected per work order. Provider admission is a
 reviewed snapshot of the pinned release's direct HTTP/API/OAuth/SDK provider
 names and aliases; external-process transports and names absent from that
