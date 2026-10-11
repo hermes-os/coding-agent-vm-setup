@@ -211,6 +211,15 @@ HARNESS_SOURCE = textwrap.dedent(
     loader.exec_module(bridge)
     fixture = os.environ.pop("HERMES_TEST_BINARY")
     bridge.resolve_hermes_runtime = lambda: (fixture,)
+    # Installed templates are root-owned; a checkout's are not. The override
+    # lives in the harness so the bridge has no production switch for it.
+    template_dir = os.environ.pop("HERMES_TEST_TEMPLATE_DIR", None)
+    if template_dir:
+        bridge.TEMPLATE_DIR = bridge.Path(template_dir)
+        bridge.ACCESS_TEMPLATE_PATHS = {
+            access: bridge.TEMPLATE_DIR / f"config.{access}.yaml" for access in ("read", "write")
+        }
+        bridge.TEMPLATE_OWNER_UID = os.geteuid()
     raise SystemExit(bridge.main())
     ''')
 
@@ -250,6 +259,17 @@ class HermesWorkerBridgeTests(unittest.TestCase):
             }
         )
         return environment
+
+    def make_template_dir(self):
+        """Copy the shipped templates read-only so they pass the trusted-template check."""
+        template_dir = self.work / "trusted-templates"
+        template_dir.mkdir(exist_ok=True)
+        for source in (ROOT / "host" / "hermes-worker").glob("config*.yaml"):
+            target = template_dir / source.name
+            target.unlink(missing_ok=True)
+            target.write_bytes(source.read_bytes())
+            target.chmod(0o444)
+        return template_dir
 
     def make_native_home(self, *, session_id, cwd=None, binding_cwd=None, yolo=False, broker_session_id="11111111-1111-4111-8111-111111111111", access="write"):
         self.assertTrue(STAGED_PYTHON.is_file(), "staged Hermes interpreter is unavailable")
@@ -378,6 +398,7 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         effort="high",
         timeout=10,
         native=False,
+        template_dir=None,
     ):
         if runtime_home is None:
             runtime_home = self.work / f"runtime-{uuid.uuid4().hex}"
@@ -407,6 +428,8 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         )
         if not native:
             env["HERMES_TEST_BINARY"] = configured_binary
+        if template_dir is not None:
+            env["HERMES_TEST_TEMPLATE_DIR"] = str(template_dir)
         env.update({key: value for key, value in extra_env.items() if not key.startswith("FIXTURE_")})
         command = [
             *([str(BRIDGE)] if native else [sys.executable, "-I", str(self.harness)]),
@@ -990,20 +1013,49 @@ class HermesWorkerBridgeTests(unittest.TestCase):
         self.assertIsNone(mismatch_record)
 
     def test_write_binding_cannot_be_resumed_as_read(self):
+        templates = self.make_template_dir()
         runtime_home = self.work / "runtime-write-binding"
-        fresh, _, _, _ = self.run_bridge(runtime_home=runtime_home, access="write", session="native-bound")
+        fresh, _, _, _ = self.run_bridge(
+            runtime_home=runtime_home, access="write", session="native-bound", template_dir=templates
+        )
         self.assertEqual(fresh.returncode, 0, fresh.stderr)
         rejected, events, record, _ = self.run_bridge(
             runtime_home=runtime_home,
             access="read",
             session_args=("--resume-session", "native-bound"),
+            template_dir=templates,
         )
         self.assertNotEqual(rejected.returncode, 0)
-        # A checkout's templates are not root-owned, so the bridge treats the
-        # write config as foreign and refuses before the binding check; an
-        # installed (root-owned) template set reaches resume_binding_mismatch.
-        self.assertIn(events[-1]["code"], {"resume_binding_mismatch", "unsafe_runtime_home"})
+        self.assertEqual(events[-1]["code"], "resume_binding_mismatch")
         self.assertIsNone(record)
+
+    def test_resume_replaces_superseded_template_with_current_one(self):
+        templates = self.make_template_dir()
+        runtime_home = self.work / "runtime-superseded-template"
+        fresh, _, _, _ = self.run_bridge(
+            runtime_home=runtime_home, access="read", session="native-old-template", template_dir=templates
+        )
+        self.assertEqual(fresh.returncode, 0, fresh.stderr)
+        config = runtime_home / "config.yaml"
+        superseded = (templates / "config.read.v1.yaml").read_bytes()
+        current = (templates / "config.read.yaml").read_bytes()
+        self.assertNotEqual(superseded, current)
+        config.unlink()
+        config.write_bytes(superseded)
+        config.chmod(0o400)
+
+        resumed, events, record, _ = self.run_bridge(
+            runtime_home=runtime_home,
+            access="read",
+            session="native-old-template",
+            session_args=("--resume-session", "native-old-template"),
+            template_dir=templates,
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual(events[-1]["event"], "final")
+        self.assertIsNotNone(record)
+        self.assertEqual(config.read_bytes(), current)
+        self.assertEqual(stat.S_IMODE(config.stat().st_mode), 0o400)
 
     def test_empty_or_missing_native_result_fails_without_final(self):
         for behavior, code in (("empty", "empty_result"), ("no-session", "missing_native_session")):
