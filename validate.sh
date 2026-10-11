@@ -6,8 +6,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # In containerized or multi-user VMs the submodule directory may not be owned
 # by the invoking user and the global git config may be read-only. Inject the
-# safe.directory entry via the environment so it propagates to all child
-# processes, including the shared-system submodule validation.
+# exact safe.directory entries via the environment so they propagate to all
+# child processes, including the shared-system submodule validation.
 if [[ -v GIT_CONFIG_COUNT ]]; then
   count=$GIT_CONFIG_COUNT
   while [[ ${#count} -gt 1 && ${count:0:1} == 0 ]]; do
@@ -15,7 +15,7 @@ if [[ -v GIT_CONFIG_COUNT ]]; then
   done
   if [[ ! "$count" =~ ^[0-9]+$ ]] ||
     (( ${#count} > 10 )) ||
-    (( 10#$count > 2147483646 )); then
+    (( 10#$count > 2147483645 )); then
     echo "invalid GIT_CONFIG_COUNT: expected a non-negative decimal count" >&2
     exit 2
   fi
@@ -24,8 +24,10 @@ else
   idx=0
 fi
 export "GIT_CONFIG_KEY_${idx}=safe.directory"
-export "GIT_CONFIG_VALUE_${idx}=$ROOT/agent-system"
-export "GIT_CONFIG_COUNT=$((idx + 1))"
+export "GIT_CONFIG_VALUE_${idx}=$ROOT"
+export "GIT_CONFIG_KEY_$((idx + 1))=safe.directory"
+export "GIT_CONFIG_VALUE_$((idx + 1))=$ROOT/agent-system"
+export "GIT_CONFIG_COUNT=$((idx + 2))"
 
 expected="$(git -C "$ROOT" ls-files -s agent-system | awk '$1 == "160000" {print $2}')"
 actual="$(git -C "$ROOT/agent-system" rev-parse HEAD)"
